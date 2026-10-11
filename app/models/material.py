@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import Column, Integer, String, Enum, DateTime, ForeignKey, BigInteger
+from sqlalchemy import Column, Integer, String, Text, Enum, DateTime, ForeignKey, BigInteger
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -25,6 +25,8 @@ class Material(Base):
     
     processing_status = Column(Enum(ProcessingStatus), default=ProcessingStatus.uploaded, nullable=False)
     processing_error = Column(String, nullable=True)
+    summary = Column(Text, nullable=True)
+    analysis_json = Column(Text, nullable=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

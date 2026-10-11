@@ -54,6 +54,29 @@ class AIService:
                 "source_supported": True,
                 "difficulty_appropriate": True,
             }
+        elif schema_name in {"DocumentAnalysisOutput", "DocumentAnalysis"}:
+            return {
+                "title_suggestion": "Comprehensive Examination: Fundamental Concepts",
+                "summary": "This document covers fundamental concepts and principles presented in the course material.",
+                "key_topics": ["Overview and Core Principles", "Key Methodologies", "Practical Applications"],
+                "key_concepts": ["Foundational Theory", "System Architecture", "Operational Workflow"],
+                "learning_objectives": [
+                    "Understand core principles and theoretical mechanisms",
+                    "Apply learned methodologies to practical scenarios",
+                    "Analyze and evaluate outcomes effectively"
+                ],
+                "estimated_difficulty": "medium",
+                "difficulty_reasoning": "The material introduces standard conceptual foundations with moderate technical depth.",
+                "recommended_total_questions": 10,
+                "recommended_time_minutes": 60,
+                "recommended_distribution": {
+                    "multiple_choice": 4,
+                    "true_false": 2,
+                    "identification": 2,
+                    "essay": 1,
+                    "matching": 1
+                }
+            }
         return {
             "questions": [
                 {

@@ -153,13 +153,117 @@ def _build_blueprints_from_types(
     return blueprints
 
 
+@router.post("/analyze")
+async def analyze_uploaded_material(
+    *,
+    db: Session = Depends(get_db),
+    subject_id: int = Form(..., description="ID of the subject this material belongs to"),
+    file: UploadFile = File(..., description="Learning material file to analyze"),
+    current_user: User = Depends(get_current_active_teacher),
+) -> Any:
+    """Upload a file, process its content, and generate comprehensive AI document analysis."""
+    subject = db.query(Subject).filter(Subject.id == subject_id).first()
+    if not subject:
+        raise HTTPException(status_code=404, detail="Subject not found")
+    if current_user.role != UserRole.admin and subject.teacher_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions to upload to this subject")
+
+    ext, content_type = validate_file(file)
+    unique_filename, file_path, file_size = await save_upload_file(file, settings.UPLOAD_DIR)
+
+    material = Material(
+        subject_id=subject_id,
+        uploaded_by=current_user.id,
+        file_name=unique_filename,
+        original_file_name=file.filename,
+        file_type=ext.lstrip("."),
+        file_size=file_size,
+        file_path=file_path,
+        processing_status=ProcessingStatus.uploaded,
+    )
+    db.add(material)
+    db.commit()
+    db.refresh(material)
+
+    from app.services.document_service import process_material_sync
+    process_material_sync(material.id)
+    db.refresh(material)
+
+    if material.processing_status == ProcessingStatus.failed:
+        raise HTTPException(
+            status_code=422,
+            detail=f"File processing failed: {material.processing_error or 'unknown error'}",
+        )
+
+    from app.services.analysis_service import analyze_material_record
+    analysis = analyze_material_record(db, material.id)
+    db.refresh(material)
+
+    return {
+        "status": "success",
+        "material": MaterialResponse.model_validate(material).model_dump(),
+        "analysis": analysis.model_dump(),
+    }
+
+
+@router.post("/{id}/analyze")
+def analyze_existing_material(
+    *,
+    db: Session = Depends(get_db),
+    id: int,
+    refresh: bool = False,
+    current_user: User = Depends(get_current_active_teacher),
+) -> Any:
+    """Analyze an already uploaded material record with AI."""
+    material = db.query(Material).filter(Material.id == id).first()
+    if not material:
+        raise HTTPException(status_code=404, detail="Material not found")
+    if current_user.role != UserRole.admin and material.uploaded_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+
+    from app.services.analysis_service import analyze_material_record
+    analysis = analyze_material_record(db, material.id, refresh=refresh)
+    db.refresh(material)
+
+    return {
+        "status": "success",
+        "material": MaterialResponse.model_validate(material).model_dump(),
+        "analysis": analysis.model_dump(),
+    }
+
+
+@router.get("/{id}/analysis")
+def get_material_analysis(
+    *,
+    db: Session = Depends(get_db),
+    id: int,
+    current_user: User = Depends(get_current_active_teacher),
+) -> Any:
+    """Retrieve existing analysis for a material, computing it if not yet generated."""
+    material = db.query(Material).filter(Material.id == id).first()
+    if not material:
+        raise HTTPException(status_code=404, detail="Material not found")
+    if current_user.role != UserRole.admin and material.uploaded_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+
+    from app.services.analysis_service import analyze_material_record
+    analysis = analyze_material_record(db, material.id, refresh=False)
+    db.refresh(material)
+
+    return {
+        "status": "success",
+        "material": MaterialResponse.model_validate(material).model_dump(),
+        "analysis": analysis.model_dump(),
+    }
+
+
 @router.post("/upload-and-generate")
 async def upload_and_generate_exam(
     *,
     db: Session = Depends(get_db),
     subject_id: int = Form(..., description="ID of the subject this material belongs to"),
     file: UploadFile = File(..., description="Learning material file (PDF, DOCX, TXT, etc.)"),
-    exam_title: str = Form(..., description="Title for the generated examination"),
+    exam_title: Optional[str] = Form(None, description="Title for the generated examination"),
     exam_type: str = Form(
         "all",
         description=(
@@ -178,16 +282,11 @@ async def upload_and_generate_exam(
     """
     **Upload a learning material and immediately generate an examination from it.**
 
-    This endpoint combines three steps into one request:
+    This endpoint combines four steps into one request:
     1. Upload and process (extract + chunk) the file.
-    2. Create an exam record with the chosen configuration.
-    3. Call the AI to generate questions according to the blueprint.
-
-    The `exam_type` field controls which question type(s) are generated:
-    - `"all"` → mixture of multiple choice, true/false, identification, essay, and matching
-    - `"multiple_choice"` → only multiple-choice questions
-    - `"matching"` → only matching-type questions
-    - (and so on for each individual type)
+    2. Analyze the document content with AI (extract summary, topics, concepts, difficulty).
+    3. Create an exam record linked directly to this material.
+    4. Call the AI to generate questions according to the blueprint and document analysis.
     """
     # -- 1. Validate subject & permissions -----------------------------------------
     subject = db.query(Subject).filter(Subject.id == subject_id).first()
@@ -240,14 +339,23 @@ async def upload_and_generate_exam(
             detail=f"File processing failed: {material.processing_error or 'unknown error'}",
         )
 
+    # Analyze material content
+    from app.services.analysis_service import analyze_material_record
+    analysis = analyze_material_record(db, material.id)
+    db.refresh(material)
+
+    effective_title = exam_title.strip() if (exam_title and exam_title.strip()) else analysis.title_suggestion
+    effective_description = exam_description.strip() if (exam_description and exam_description.strip()) else analysis.summary
+
     # -- 5. Build blueprints & create Examination record ------------------------------
     blueprints_data = _build_blueprints_from_types(question_types, total_questions, difficulty_enum)
 
     exam = Examination(
         subject_id=subject_id,
         created_by=current_user.id,
-        title=exam_title,
-        description=exam_description,
+        material_id=material.id,
+        title=effective_title,
+        description=effective_description,
         total_questions=total_questions,
         time_limit_minutes=time_limit_minutes,
         passing_score=passing_score,
@@ -278,9 +386,12 @@ async def upload_and_generate_exam(
             "id": material.id,
             "original_file_name": material.original_file_name,
             "processing_status": material.processing_status,
+            "summary": material.summary,
         },
+        "analysis": analysis.model_dump(),
         "examination": {
             "id": exam.id,
+            "material_id": exam.material_id,
             "title": exam.title,
             "subject_id": exam.subject_id,
             "status": exam.status,

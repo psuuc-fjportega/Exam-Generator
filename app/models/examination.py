@@ -17,6 +17,7 @@ class Examination(Base):
     id = Column(Integer, primary_key=True, index=True)
     subject_id = Column(Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
     created_by = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    material_id = Column(Integer, ForeignKey("materials.id", ondelete="SET NULL"), nullable=True)
     
     title = Column(String, nullable=False)
     description = Column(Text, nullable=True)
@@ -32,4 +33,5 @@ class Examination(Base):
 
     subject = relationship("Subject")
     creator = relationship("User")
+    material = relationship("Material")
     blueprints = relationship("ExaminationBlueprint", back_populates="examination", cascade="all, delete-orphan")

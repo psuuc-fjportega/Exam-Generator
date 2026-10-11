@@ -6,6 +6,7 @@ RULES:
 3. Distractors must be plausible but clearly incorrect according to the material.
 4. Provide structured JSON matching the requested schema exactly.
 5. Always populate source_chunk_ids with the chunk IDs most relevant to each question.
+6. Populate the 'topic' field for each question indicating the specific topic or concept tested.
 
 QUESTION TYPE GUIDELINES:
 - multiple_choice: Provide exactly 4 choices; exactly 1 must be correct (is_correct=true). The 3 wrong options should be plausible distractors.
@@ -16,6 +17,8 @@ QUESTION TYPE GUIDELINES:
 
 EXAMINATION BLUEPRINT (What to generate):
 {blueprint_instructions}
+
+{analysis_guidance}
 
 SOURCE MATERIAL:
 {source_material}

@@ -123,3 +123,101 @@ def validate_examination_questions(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         raise HTTPException(status_code=500, detail="Question validation failed")
+
+
+from app.schemas.examination import GenerateFromMaterialRequest
+from app.models.material import Material
+from app.models.examination_blueprint import QuestionDifficulty
+from app.api.materials import _resolve_question_types, _build_blueprints_from_types
+from app.services.analysis_service import analyze_material_record
+
+
+@router.post("/generate-from-material")
+def generate_exam_from_material(
+    *,
+    db: Session = Depends(get_db),
+    request_data: GenerateFromMaterialRequest,
+    current_user: User = Depends(get_current_active_teacher),
+) -> Any:
+    """Create an exam and generate questions directly from an already uploaded & analyzed material."""
+    material = db.query(Material).filter(Material.id == request_data.material_id).first()
+    if not material:
+        raise HTTPException(status_code=404, detail="Material not found")
+    if current_user.role != UserRole.admin and material.uploaded_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions to access this material")
+
+    try:
+        difficulty_enum = QuestionDifficulty(request_data.difficulty.lower())
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid difficulty '{request_data.difficulty}'. Choose from: easy, medium, hard",
+        )
+
+    try:
+        question_types = _resolve_question_types(request_data.exam_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    analysis = analyze_material_record(db, material.id)
+
+    effective_title = (
+        request_data.exam_title.strip()
+        if (request_data.exam_title and request_data.exam_title.strip())
+        else analysis.title_suggestion
+    )
+    effective_description = (
+        request_data.exam_description.strip()
+        if (request_data.exam_description and request_data.exam_description.strip())
+        else analysis.summary
+    )
+
+    blueprints_data = _build_blueprints_from_types(
+        question_types, request_data.total_questions, difficulty_enum
+    )
+
+    exam = Examination(
+        subject_id=material.subject_id,
+        created_by=current_user.id,
+        material_id=material.id,
+        title=effective_title,
+        description=effective_description,
+        total_questions=request_data.total_questions,
+        time_limit_minutes=request_data.time_limit_minutes,
+        passing_score=request_data.passing_score,
+        status=ExamStatus.draft,
+    )
+    db.add(exam)
+    db.commit()
+    db.refresh(exam)
+
+    for bp in blueprints_data:
+        db.add(ExaminationBlueprint(examination_id=exam.id, **bp))
+    db.commit()
+    db.refresh(exam)
+
+    try:
+        generation_result = generate_questions_for_exam(db, exam.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Question generation failed: {str(exc)}")
+
+    db.refresh(exam)
+
+    return {
+        "status": "success",
+        "material": {
+            "id": material.id,
+            "original_file_name": material.original_file_name,
+            "summary": material.summary,
+        },
+        "analysis": analysis.model_dump(),
+        "examination": ExaminationResponse.model_validate(exam).model_dump(),
+        "generation": {
+            "questions_generated": len(generation_result.get("questions", [])),
+            "questions": generation_result.get("questions", []),
+            "validation": generation_result.get("validation", []),
+        },
+    }
+

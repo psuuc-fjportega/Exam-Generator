@@ -75,6 +75,7 @@ def serialize_question(question: Question) -> QuestionResponse:
         question_text=question.question_text,
         question_type=question.question_type,
         difficulty=question.difficulty,
+        topic=question.topic,
         explanation=question.explanation,
         status=question.status,
         generation_method=question.generation_method,
@@ -115,6 +116,7 @@ def persist_generated_question(
         status=QuestionStatus.draft,
         generation_method=GenerationMethod.ai,
         created_by=created_by,
+        topic=generated.topic or "",
     )
     db.add(question)
     db.flush()
@@ -165,7 +167,18 @@ def generate_questions_for_exam(db: Session, exam_id: int) -> Dict[str, Any]:
     if not exam:
         raise ValueError("Examination not found")
 
-    chunks = _chunks_for_subject(db, exam.subject_id)
+    if exam.material_id:
+        chunks = (
+            db.query(DocumentChunk)
+            .filter(DocumentChunk.material_id == exam.material_id)
+            .order_by(DocumentChunk.chunk_index.asc())
+            .all()
+        )
+        if not chunks:
+            chunks = _chunks_for_subject(db, exam.subject_id)
+    else:
+        chunks = _chunks_for_subject(db, exam.subject_id)
+
     if not chunks:
         raise ValueError("No source material found for the given subject")
 
@@ -180,9 +193,39 @@ def generate_questions_for_exam(db: Session, exam_id: int) -> Dict[str, Any]:
             f"{blueprint.question_type.value} with {blueprint.difficulty.value} difficulty.\n"
         )
 
+    # Check for document analysis to guide generation across topics
+    analysis_guidance = ""
+    target_material = None
+    if exam.material_id:
+        target_material = db.query(Material).filter(Material.id == exam.material_id).first()
+    elif chunks:
+        target_material = db.query(Material).filter(Material.id == chunks[0].material_id).first()
+
+    if target_material and target_material.analysis_json:
+        try:
+            analysis_dict = json.loads(target_material.analysis_json)
+            topics_str = ", ".join(analysis_dict.get("key_topics", []))
+            concepts_str = ", ".join(analysis_dict.get("key_concepts", []))
+            objectives_str = "; ".join(analysis_dict.get("learning_objectives", []))
+            summary_str = analysis_dict.get("summary", "")
+
+            analysis_guidance = (
+                "DOCUMENT ANALYSIS & TARGET TOPICS:\n"
+                f"- Material Summary: {summary_str}\n"
+                f"- Target Topics: {topics_str}\n"
+                f"- Key Concepts: {concepts_str}\n"
+                f"- Learning Objectives: {objectives_str}\n\n"
+                "INSTRUCTION: Distribute questions across the above Target Topics and Key Concepts "
+                "to ensure comprehensive coverage of the uploaded document. In each question, set 'topic' "
+                "to the corresponding topic name.\n"
+            )
+        except Exception:
+            pass
+
     template = load_prompt_template("question_generation.txt")
     prompt = template.format(
         blueprint_instructions=blueprint_instructions,
+        analysis_guidance=analysis_guidance,
         source_material=source_material_text,
     )
 

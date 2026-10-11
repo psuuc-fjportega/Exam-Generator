@@ -21,6 +21,7 @@ class BlueprintResponse(BlueprintBase):
 
 class ExaminationBase(BaseModel):
     subject_id: int
+    material_id: Optional[int] = None
     title: str
     description: Optional[str] = None
     total_questions: int
@@ -54,3 +55,15 @@ class ExaminationResponse(ExaminationBase):
     blueprints: List[BlueprintResponse] = []
 
     model_config = {"from_attributes": True}
+
+class GenerateFromMaterialRequest(BaseModel):
+    material_id: int
+    exam_title: Optional[str] = None
+    exam_description: Optional[str] = None
+    exam_type: str = "all"
+    total_questions: int = 10
+    difficulty: str = "medium"
+    time_limit_minutes: int = 60
+    passing_score: int = 50
+    selected_topics: Optional[List[str]] = None
+

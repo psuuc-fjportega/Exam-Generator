@@ -31,6 +31,7 @@ class Question(Base):
     status = Column(Enum(QuestionStatus), default=QuestionStatus.draft, nullable=False, index=True)
     generation_method = Column(Enum(GenerationMethod), default=GenerationMethod.manual, nullable=False)
     created_by = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    topic = Column(String, nullable=True)
 
     validation_confidence = Column(Float, nullable=True)
     source_supported = Column(Boolean, nullable=True)

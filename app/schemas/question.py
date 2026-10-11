@@ -62,6 +62,7 @@ class QuestionResponse(BaseModel):
     question_text: str
     question_type: QuestionType
     difficulty: QuestionDifficulty
+    topic: Optional[str] = None
     explanation: Optional[str] = None
     status: QuestionStatus
     generation_method: GenerationMethod
