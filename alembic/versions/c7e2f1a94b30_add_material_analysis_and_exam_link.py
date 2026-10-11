@@ -31,7 +31,18 @@ def upgrade() -> None:
 
     exam_cols = [c['name'] for c in inspector.get_columns('examinations')]
     if 'material_id' not in exam_cols:
-        op.add_column('examinations', sa.Column('material_id', sa.Integer(), sa.ForeignKey('materials.id', ondelete='SET NULL'), nullable=True))
+        if conn.dialect.name == 'sqlite':
+            with op.batch_alter_table('examinations') as batch_op:
+                batch_op.add_column(sa.Column('material_id', sa.Integer(), nullable=True))
+                batch_op.create_foreign_key(
+                    'fk_examinations_material_id',
+                    'materials',
+                    ['material_id'],
+                    ['id'],
+                    ondelete='SET NULL'
+                )
+        else:
+            op.add_column('examinations', sa.Column('material_id', sa.Integer(), sa.ForeignKey('materials.id', ondelete='SET NULL'), nullable=True))
 
     q_cols = [c['name'] for c in inspector.get_columns('questions')]
     if 'topic' not in q_cols:
