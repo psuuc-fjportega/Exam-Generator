@@ -374,7 +374,7 @@ async def upload_and_generate_exam(
     from app.services.question_service import generate_questions_for_exam
     try:
         generation_result = generate_questions_for_exam(db, exam.id)
-    except ValueError as exc:
+    except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Question generation failed: {str(exc)}")

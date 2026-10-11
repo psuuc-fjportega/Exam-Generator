@@ -16,9 +16,15 @@ import {
   Clock,
   ListChecks,
   ArrowLeft,
+  Key,
 } from "lucide-react";
 
-export default function GenerateExamForm({ onExamGenerated, token: propToken }) {
+export default function GenerateExamForm({
+  onExamGenerated,
+  token: propToken,
+  aiStatus,
+  onOpenKeyModal,
+}) {
   const [file, setFile] = useState(null);
   const [dragActive, setDragActive] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -166,6 +172,13 @@ export default function GenerateExamForm({ onExamGenerated, token: propToken }) 
       setErrorMessage("You must be logged in as a teacher. Please sign in first.");
       return;
     }
+    if (aiStatus && !aiStatus.ai_configured) {
+      setErrorMessage(
+        "Gemini API key is not configured. Please click 'Configure Key' above to activate AI generation."
+      );
+      if (onOpenKeyModal) onOpenKeyModal();
+      return;
+    }
     if (!file) {
       setErrorMessage("Please upload a source material file (TXT, PDF, or DOCX).");
       return;
@@ -240,6 +253,14 @@ export default function GenerateExamForm({ onExamGenerated, token: propToken }) 
       return;
     }
 
+    if (aiStatus && !aiStatus.ai_configured) {
+      setErrorMessage(
+        "Gemini API key is not configured. Please click 'Configure Key' above to activate AI generation."
+      );
+      if (onOpenKeyModal) onOpenKeyModal();
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -298,6 +319,30 @@ export default function GenerateExamForm({ onExamGenerated, token: propToken }) 
   // ——— Render: Step 1 — Upload & Analyze ———
   const renderUploadStep = () => (
     <form onSubmit={handleAnalyze} className="space-y-8">
+      {/* AI Key Missing Alert */}
+      {aiStatus && !aiStatus.ai_configured && (
+        <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 shadow-xs">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+            <div className="text-sm">
+              <span className="font-bold">Gemini API Key Required:</span>
+              <p className="text-amber-800 text-xs mt-0.5">
+                AI document analysis and examination generation require a Google Gemini API key.
+              </p>
+            </div>
+          </div>
+          {onOpenKeyModal && (
+            <button
+              type="button"
+              onClick={onOpenKeyModal}
+              className="px-3.5 py-1.5 bg-amber-900 hover:bg-black text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 self-start sm:self-center"
+            >
+              <Key className="w-3.5 h-3.5" /> Configure Key
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Subject Selection & Creation */}
       <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
         <div className="flex items-center justify-between mb-2">

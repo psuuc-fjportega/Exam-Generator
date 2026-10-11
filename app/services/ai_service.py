@@ -1,6 +1,8 @@
 import json
 import logging
-from typing import Any, Dict
+import os
+import sys
+from typing import Any, Dict, Optional
 from google import genai
 from google.genai import types
 
@@ -10,28 +12,70 @@ logger = logging.getLogger(__name__)
 
 class AIService:
     def __init__(self):
-        self.api_key = settings.AI_API_KEY
-        if self.api_key and self.api_key != "your_api_key_here":
-            self.client = genai.Client(api_key=self.api_key)
-        else:
-            self.client = None
+        self._cached_key: Optional[str] = None
+        self._client: Optional[genai.Client] = None
+
+    @staticmethod
+    def is_test_environment() -> bool:
+        """Detect whether code is running inside a test runner (e.g. pytest)."""
+        return (
+            "pytest" in sys.modules 
+            or os.environ.get("TESTING") == "1" 
+            or "PYTEST_CURRENT_TEST" in os.environ
+        )
+
+    def get_client(self) -> Optional[genai.Client]:
+        """Dynamically get or initialize the Gemini client using active settings / environment."""
+        key = settings.get_effective_ai_api_key()
+        if not key:
+            self._client = None
+            self._cached_key = None
+            return None
+
+        if self._client is None or self._cached_key != key:
+            try:
+                self._client = genai.Client(api_key=key)
+                self._cached_key = key
+            except Exception as e:
+                logger.error(f"Failed to initialize Gemini client: {e}")
+                self._client = None
+                self._cached_key = None
+        return self._client
+
+    @property
+    def client(self) -> Optional[genai.Client]:
+        return self.get_client()
+
+    def is_configured(self) -> bool:
+        """Check whether a valid Gemini API key is configured and client can be initialized."""
+        return self.get_client() is not None
 
     def generate_structured_json(
         self, 
         prompt: str, 
         response_schema: Any, 
-        model_name: str = "gemini-3.5-flash-lite"
+        model_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Generate structured JSON using Gemini API.
         """
-        if not self.client:
-            logger.warning("AI_API_KEY is not configured or is default. Returning mock response.")
+        if self.is_test_environment() and os.environ.get("USE_LIVE_AI") != "1":
+            logger.info("Test environment detected. Returning mock response for test isolation.")
             return self._get_mock_response(response_schema)
+
+        active_model = model_name or getattr(settings, "AI_MODEL_NAME", "gemini-3.5-flash-lite")
+        client = self.get_client()
+
+        if not client:
+            raise RuntimeError(
+                "Gemini AI API Key is not configured. Please set the AI_API_KEY or GEMINI_API_KEY "
+                "environment variable in your server configuration (e.g., Render Dashboard or .env file), "
+                "or configure it via the web interface."
+            )
             
         try:
-            response = self.client.models.generate_content(
-                model=model_name,
+            response = client.models.generate_content(
+                model=active_model,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
@@ -41,7 +85,7 @@ class AIService:
             )
             return json.loads(response.text)
         except Exception as e:
-            logger.error(f"Error calling Gemini API: {str(e)}")
+            logger.error(f"Error calling Gemini API ({active_model}): {str(e)}")
             raise e
             
     def _get_mock_response(self, response_schema: Any = None) -> Dict[str, Any]:

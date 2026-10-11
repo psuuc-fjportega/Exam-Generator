@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from app.core.config import settings
-from app.api import auth, users, subjects, materials, examinations, questions
+from app.api import auth, users, subjects, materials, examinations, questions, system
 import app.models
 
 app = FastAPI(
@@ -26,6 +26,7 @@ app.include_router(subjects.router, prefix="/api/subjects", tags=["subjects"])
 app.include_router(materials.router, prefix="/api/materials", tags=["materials"])
 app.include_router(examinations.router, prefix="/api/examinations", tags=["examinations"])
 app.include_router(questions.router, prefix="/api/questions", tags=["questions"])
+app.include_router(system.router, prefix="/api/system", tags=["system"])
 
 @app.get("/health")
 def health_check():

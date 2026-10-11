@@ -98,7 +98,7 @@ def generate_examination_questions(
     try:
         generation_result = generate_questions_for_exam(db, exam.id)
         return {"status": "success", **generation_result}
-    except ValueError as e:
+    except (ValueError, RuntimeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
@@ -198,7 +198,7 @@ def generate_exam_from_material(
 
     try:
         generation_result = generate_questions_for_exam(db, exam.id)
-    except ValueError as exc:
+    except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Question generation failed: {str(exc)}")
